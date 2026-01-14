@@ -1,139 +1,115 @@
+import select
+import sys
 import time
 import json
-import os
 import _thread
 import machine
-from machine import UART, Pin
+import os
 from roboxlib import ColorSensor
+from communication import USBCommunication, BluetoothCommunuication, generate_message
 
+DEBUG = True
+CURRENT_FIRMWARE_VERSION = "1.0.0"
 # ----------------------
 # Hardware setup
 # ----------------------
-LED = Pin(25, Pin.OUT)
+LED = machine.Pin(25, machine.Pin.OUT)
 PROGRAM_FILENAME = "program.py"
-
-# HM-10 UART (TX/RX)
-uart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))
-
-# Optional color sensor
 colorSensor = False
 try:
     colorSensor = ColorSensor()
 except:
     colorSensor = False
-
 # ----------------------
 # Command dictionary
 # ----------------------
 COMMANDS = {
-    "x04STARTPROG": "start_program",
+    "x01FIRMCHECK": "firmware_check",
     "x02BEGINUPLD": "begin_upload",
     "x03ENDUPLD": "end_upload",
-    "x01FIRMCHECK": "firmware_check",
-    "x06RESTART": "reset_device",
+    "x04STARTPROG": "start_program",    
     "x05COLORCALIBRATE": "calibrate_color",
+    "x06RESTART": "reset_device",
     "x07BOOTLOADER": "boot_loader",
+    # Functionally the same as RESTART but for state management
+    "x08DISCONNECT": "disconnect_device",
 }
+# ----------------------
+# Communication setup
+# ----------------------
+ble = BluetoothCommunuication()
+usb = USBCommunication()
 
+communications = []
+current_communication_method = None
+if usb.available():
+    communications.append(usb)
+if ble.available():
+    communications.append(ble)
 # ----------------------
 # Helpers
 # ----------------------
-def generate_message(msg_type, message):
-    """Format JSON message for Pico → BLE"""
-    return json.dumps({"type": msg_type, "message": message}) + "\n"
-
-def run_user_program():
+def run_user_program(comm):
     try:
         import program
     except Exception as e:
-        uart.write(generate_message("error", str(e)))
-
-# ----------------------
-# UART (HM-10) mode
-# ----------------------
-def uart_mode():
-    uart.write(generate_message("connect", "Device ready over Bluetooth"))
-
-    out_file = None
-    buffer = b''  # Accumulate incoming bytes
-
-    while True:
-        if uart.any():
-            data = uart.read(uart.any())  # Read all available bytes
-            if not data:
-                continue
-
-            buffer += data
-            # Process full lines only
-            while b'\n' in buffer:
-                line_bytes, buffer = buffer.split(b'\n', 1)
-                try:
-                    line = line_bytes.decode()
-                    clean_line = line.strip()
-                except UnicodeError:
-                    continue  # ignore invalid bytes
-                print(line)
-                if not line:
+        comm.write_message("error", str(e))
+while True:
+    for comm in communications:
+        if comm.sleeping:
+            continue
+        line = comm.read_line()
+        if line:
+            if (DEBUG):
+                print(generate_message("console", "Received over {}: {}".format(comm.name, line)))
+            command = COMMANDS.get(line)
+            if command == "firmware_check":
+                if DEBUG:
+                    print(generate_message("console", "Firmware check over {}".format(comm.name)))
+                # Reject if already connected over another interface
+                if (current_communication_method and current_communication_method != comm):
+                    comm.write_message("error", "Already connected over another interface")
                     continue
-                
-                command = COMMANDS.get(clean_line)
-                
-                # ----------------------
-                # Command handling
-                # ----------------------
-                print(command)
-                if command == "start_program":
-                    LED.on()
-                    uart.write(generate_message("console", "Starting the program"))
-                    time.sleep(0.3)
-                    _thread.start_new_thread(run_user_program, ())
-
-                elif command == "calibrate_color":
-                    if not colorSensor:
-                        uart.write(generate_message("error", "Color sensor not connected"))
-                    else:
-                        colorSensor.calibrate()
-                        uart.write(generate_message("calibrated", ""))
-
-                elif command == "begin_upload":
-                    print(0)
-                    os.remove(PROGRAM_FILENAME)
-                    print(1)
-                    out_file = open(PROGRAM_FILENAME, "w")
-                    print(2)
-                    uart.write(generate_message("console", "Ready to receive program"))
-                    print(3)
-                    time.sleep(0.01)
-
-                elif command == "end_upload":
-                    if out_file:
-                        out_file.close()
-                        out_file = None
-                    LED.on()
-                    uart.write(generate_message("download", "Program received"))
-                    time.sleep(0.01)
-
-                elif command == "firmware_check":
-                    print("FIRMWARE")
-                    uart.write(generate_message("confirmation", True))
-
-                elif command == "reset_device":
-                    machine.reset()
-
-                elif out_file:
-                    LED.toggle()
-                    print(line)
-                    out_file.write(line+"\n")
-
-# ----------------------
-# Main
-# ----------------------
-def main():
-    LED.on()
-    uart_mode()  # Always use HM-10 BLE UART mode
-
-main()
-
-
-
-
+                # If we are connected via USB, set bluetooth to sleep
+                if comm == usb:
+                    if ble in communications:
+                        if DEBUG:
+                            print(generate_message("console", "Putting BLE to sleep"))
+                        ble.sleep()
+                current_communication_method = comm
+                comm.write_message("firmware", CURRENT_FIRMWARE_VERSION)
+            elif command == "start_program":
+                LED.on()
+                comm.write_message("console", "Starting the program")
+                time.sleep(0.3)
+                _thread.start_new_thread(run_user_program, (comm,))
+            elif command == "begin_upload":
+                os.remove(PROGRAM_FILENAME) if PROGRAM_FILENAME in os.listdir() else None
+                out_file = open(PROGRAM_FILENAME, "w")
+                comm.write_message("console", "Begin upload")
+                if (DEBUG):
+                    print(generate_message("console", "Beginning upload over {}".format(comm.name)))
+                time.sleep(0.1)
+            elif command == "end_upload":
+                if out_file:
+                    out_file.close()
+                    out_file = None
+                    comm.write_message("console", "Upload complete")
+                else:
+                    comm.write_message("error", "No upload in progress")
+                time.sleep(0.1)
+            elif command == "calibrate_color":
+                if not colorSensor:
+                    comm.write_message("error", "The color sensor is not properly connected")
+                else:
+                    colorSensor.calibrate()
+                    comm.write_message("calibrated", "")
+            elif command == "reset_device":
+                ble.wake() if ble in communications and ble.sleeping else None
+                machine.reset()
+            
+            elif out_file:
+                if DEBUG:
+                    print(generate_message("console", "Writing to file over {}: {}".format(comm.name, line)))
+                LED.toggle()
+                out_file.write(line + "\n")

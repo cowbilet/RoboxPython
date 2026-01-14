@@ -26,11 +26,10 @@ class USBCommunication(CommunicationInterface):
         if not self.poller.poll(0):
             return None
         line = sys.stdin.readline()
-        return line.strip() if line else None
+        return line.rstrip("\n") if line else None
     def write_message(self, message_type, content):
         message = generate_message(message_type, content)    
-        sys.stdout.write(message)
-        sys.stdout.flush()
+        print(message)
 
 class BluetoothCommunuication(CommunicationInterface):
     def __init__(self, uart_port=0, baudrate=9600) -> None:
@@ -59,12 +58,12 @@ class BluetoothCommunuication(CommunicationInterface):
 
         line, self.buffer = self.buffer.split(b"\n", 1)
         try:
-            return line.decode().strip()
+            return line.decode().rstrip("\n")
         except:
             return None
     def write_message(self, message_type, content):
         message = generate_message(message_type, content)
-        self.uart.write(message)
+        self.uart.write(message + "\n")
     def sleep(self):
         if self.ok and not self.sleeping:
             self.uart.write("AT+SLEEP\r\n")
@@ -76,5 +75,5 @@ class BluetoothCommunuication(CommunicationInterface):
             self.sleeping = False
 # The function to generate the structured JSON message
 def generate_message(message_type, content):
-    return json.dumps({"type": message_type, "message": content}) + "\n"
+    return json.dumps({"type": message_type, "message": content})
 

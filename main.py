@@ -51,7 +51,10 @@ if ble.available():
 # ----------------------
 def run_user_program(comm):
     try:
-        import program
+        sys.modules.pop("program", None)  # force reload each time
+        global current_comm
+        current_comm = comm
+        import program 
     except Exception as e:
         comm.write_message("error", str(e))
 while True:

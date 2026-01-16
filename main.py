@@ -93,9 +93,8 @@ while True:
                 comm.write_message("firmware", CURRENT_FIRMWARE_VERSION)
             elif command == "start_program":
                 LED.on()
-                # comm.write_message("console", "Starting the program")
-                time.sleep(0.3)
                 _thread.start_new_thread(run_user_program, (comm,))
+                comm.write_message("download", "")
             elif command == "begin_upload":
                 print(generate_message("console", "Beginning upload over {}".format(comm.name)))
                 try:

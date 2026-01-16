@@ -4,8 +4,6 @@ import sys, select
 import time
 import _thread
 
-# Create a global write lock for thread-safe writing
-_write_lock = _thread.allocate_lock()
 
 # Interface for the communication
 class CommunicationInterface:
@@ -43,9 +41,7 @@ class USBCommunication(CommunicationInterface):
     
     def write_message(self, message_type, content):
         message = generate_message(message_type, content)
-        with _write_lock:
-            print(message)
-            sys.stdout.flush()  # Ensure immediate output
+        print(message)
     
     def sleep(self):
         self.sleeping = True
@@ -96,24 +92,20 @@ class BluetoothCommunuication(CommunicationInterface):
     
     def write_message(self, message_type, content):
         message = generate_message(message_type, content)
-        with _write_lock:
-            print("Sending over BLE: {}".format(message))
-            self.uart.write((f"{message}\n").encode())
-            time.sleep(0.3)  # give time for the message to be sent
+        print("Sending over BLE: {}".format(message))
+        self.uart.write((f"{message}\n").encode())
+        time.sleep(0.3)  # give time for the message to be sent
     
     def write(self, data):
-        with _write_lock:
-            self.uart.write(data+"\r\n")
+        self.uart.write(data+"\r\n")
     
     def sleep(self):
         if self.ok and not self.sleeping:
-            with _write_lock:
-                self.uart.write("AT+SLEEP\r\n")
+            self.uart.write("AT+SLEEP\r\n")
             self.sleeping = True
     
     def wake(self):
-        with _write_lock:
-            self.uart.write("AT\r\n")
+        self.uart.write("AT\r\n")
         self.sleeping = False
 
 # The function to generate the structured JSON message

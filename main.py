@@ -57,6 +57,8 @@ def run_user_program(comm):
         import program 
     except Exception as e:
         comm.write_message("error", str(e))
+out_file = None
+command = None
 while True:
     for comm in communications:
         if comm.sleeping:
@@ -65,7 +67,7 @@ while True:
         if line:
             if (DEBUG):
                 print(generate_message("console", "Received over {}: {}".format(comm.name, line)))
-            command = COMMANDS.get(line)
+            command = COMMANDS.get(line.strip())
             if command == "firmware_check":
                 if DEBUG:
                     print(generate_message("console", "Firmware check over {}".format(comm.name)))
@@ -79,6 +81,11 @@ while True:
                         if DEBUG:
                             print(generate_message("console", "Putting BLE to sleep"))
                         ble.sleep()
+                else:
+                    if usb in communications:
+                        if DEBUG:
+                            print(generate_message("console", "Putting USB to sleep"))
+                        usb.sleep()
                 current_communication_method = comm
                 comm.write_message("firmware", CURRENT_FIRMWARE_VERSION)
             elif command == "start_program":
@@ -109,6 +116,7 @@ while True:
                     comm.write_message("calibrated", "")
             elif command == "reset_device":
                 ble.wake() if ble in communications and ble.sleeping else None
+                usb.wake() if usb in communications and usb.sleeping else None
                 machine.reset()
             
             elif out_file:

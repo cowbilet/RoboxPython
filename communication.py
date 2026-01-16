@@ -30,13 +30,17 @@ class USBCommunication(CommunicationInterface):
     def write_message(self, message_type, content):
         message = generate_message(message_type, content)    
         print(message)
+    def sleep(self):
+        self.sleeping = True
+    def wake(self):
+        self.sleeping = False
 
 class BluetoothCommunuication(CommunicationInterface):
     def __init__(self, uart_port=0, baudrate=9600) -> None:
         self.name = "Bluetooth"
         self.sleeping = False
         try:
-            self.uart = UART(uart_port, baudrate=baudrate)
+            self.uart = UART(uart_port, baudrate=baudrate, tx=Pin(0), rx=Pin(1))
             self.buffer = b""
             self.ok = True
         except:
@@ -51,18 +55,21 @@ class BluetoothCommunuication(CommunicationInterface):
         if not data:
             return None
 
-        self.buffer += data
+        # Normalize line endings
+        self.buffer += data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
         if b"\n" not in self.buffer:
             return None
 
         line, self.buffer = self.buffer.split(b"\n", 1)
         try:
-            return line.decode().rstrip("\n")
+            return line.decode()
         except:
             return None
+
     def write_message(self, message_type, content):
         message = generate_message(message_type, content)
+        print("Sending over BLE: {}".format(message))
         self.uart.write(message + "\n")
     def sleep(self):
         if self.ok and not self.sleeping:

@@ -1,6 +1,7 @@
 from machine import UART, Pin
 import json
 import sys, select
+import time
 # Interface for the communication
 class CommunicationInterface:
     def __init__(self) -> None:
@@ -48,38 +49,46 @@ class BluetoothCommunuication(CommunicationInterface):
     def available(self):
         return self.ok
     def read_line(self):
+        # Okay so the issue with this was super annoying, if two messages are split unevenly over two reads like "HELLO" and "WORLD", we can get a buffer like "HELLOWORL" and then "D\n"
+        # but if we only return the first line we see, then we never get "WORLD"
+        if (self.buffer != b""):
+            print(self.buffer)
+        if b"\n" in self.buffer:
+            while b"\n" in self.buffer:
+                line, self.buffer = self.buffer.split(b"\n", 1)
+                if line.strip():
+                    try:
+                        return line.decode()
+                    except:
+                        return None
+            return None
+
+        # Add the UART to the buffer
         if not self.uart.any():
             return None
 
         data = self.uart.read()
         if not data:
             return None
-
-        # Normalize line endings
+        # Normalize line endings to \n
         self.buffer += data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
-        if b"\n" not in self.buffer:
-            return None
+        # 3️⃣ Try again now that buffer grew
+        return self.read_line()
 
-        line, self.buffer = self.buffer.split(b"\n", 1)
-        try:
-            return line.decode()
-        except:
-            return None
 
     def write_message(self, message_type, content):
         message = generate_message(message_type, content)
         print("Sending over BLE: {}".format(message))
-        self.uart.write(message + "\n")
+        self.uart.write(message.encode() + b"\r\n")
+        time.sleep(0.1)  # give time for the message to be sent
     def sleep(self):
         if self.ok and not self.sleeping:
             self.uart.write("AT+SLEEP\r\n")
             self.sleeping = True
-        self.sleeping = True
     def wake(self):
-        if self.ok and self.sleeping:
-            self.uart.write("AT\r\n")
-            self.sleeping = False
+        self.uart.write("AT\r\n")
+        self.sleeping = False
 # The function to generate the structured JSON message
 def generate_message(message_type, content):
     return json.dumps({"type": message_type, "message": content})

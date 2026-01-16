@@ -51,11 +51,13 @@ if ble.available():
 # ----------------------
 def run_user_program(comm):
     try:
-        sys.modules.pop("program", None)  # force reload each time
-        global current_comm
-        current_comm = comm
-        import program 
+        sys.modules.pop("program", None)
+        ns = {"current_comm": comm}
+        with open("program.py") as f:
+            code = f.read()
+        exec(code, ns)
     except Exception as e:
+        print("Error in user program: {}".format(e))
         comm.write_message("error", str(e))
 out_file = None
 command = None
@@ -90,24 +92,26 @@ while True:
                 comm.write_message("firmware", CURRENT_FIRMWARE_VERSION)
             elif command == "start_program":
                 LED.on()
-                comm.write_message("console", "Starting the program")
+                # comm.write_message("console", "Starting the program")
                 time.sleep(0.3)
                 _thread.start_new_thread(run_user_program, (comm,))
             elif command == "begin_upload":
-                os.remove(PROGRAM_FILENAME) if PROGRAM_FILENAME in os.listdir() else None
+                print(generate_message("console", "Beginning upload over {}".format(comm.name)))
+                # try:
+                #     os.remove(PROGRAM_FILENAME)
+                # except OSError:
+                #     pass
+                print(generate_message("console", "Beginning upload over {}".format(comm.name)))
                 out_file = open(PROGRAM_FILENAME, "w")
-                comm.write_message("console", "Begin upload")
-                if (DEBUG):
-                    print(generate_message("console", "Beginning upload over {}".format(comm.name)))
-                time.sleep(0.1)
+                if DEBUG:
+                    print(generate_message("console", f"Beginning upload over {comm.name}"))
             elif command == "end_upload":
                 if out_file:
                     out_file.close()
                     out_file = None
-                    comm.write_message("console", "Upload complete")
+
                 else:
                     comm.write_message("error", "No upload in progress")
-                time.sleep(0.1)
             elif command == "calibrate_color":
                 if not colorSensor:
                     comm.write_message("error", "The color sensor is not properly connected")

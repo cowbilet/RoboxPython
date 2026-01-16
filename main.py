@@ -8,7 +8,7 @@ import os
 from roboxlib import ColorSensor
 from communication import USBCommunication, BluetoothCommunuication, generate_message
 
-DEBUG = True
+DEBUG = False
 CURRENT_FIRMWARE_VERSION = "1.0.0"
 # ----------------------
 # Hardware setup
@@ -45,6 +45,7 @@ current_communication_method = None
 if usb.available():
     communications.append(usb)
 if ble.available():
+    ble.write_message("connect", "")
     communications.append(ble)
 # ----------------------
 # Helpers
@@ -97,10 +98,10 @@ while True:
                 _thread.start_new_thread(run_user_program, (comm,))
             elif command == "begin_upload":
                 print(generate_message("console", "Beginning upload over {}".format(comm.name)))
-                # try:
-                #     os.remove(PROGRAM_FILENAME)
-                # except OSError:
-                #     pass
+                try:
+                    os.remove(PROGRAM_FILENAME)
+                except OSError:
+                    pass
                 print(generate_message("console", "Beginning upload over {}".format(comm.name)))
                 out_file = open(PROGRAM_FILENAME, "w")
                 if DEBUG:
@@ -109,7 +110,7 @@ while True:
                 if out_file:
                     out_file.close()
                     out_file = None
-
+                    comm.write_message("download", "")
                 else:
                     comm.write_message("error", "No upload in progress")
             elif command == "calibrate_color":
